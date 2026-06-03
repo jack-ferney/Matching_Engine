@@ -10,3 +10,19 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
+
+add_library(me STATIC src/placeholder.cpp)          # sources added in later phases
+target_include_directories(me PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+include(FetchContent)
+FetchContent_Declare(googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG        v1.15.2)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+add_executable(unit_tests tests/test_matching_engine.cpp)
+target_link_libraries(unit_tests PRIVATE me GTest::gtest_main)
+include(GoogleTest)
+gtest_discover_tests(unit_tests)
