@@ -11,7 +11,7 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
-add_library(me STATIC src/placeholder.cpp)          # sources added in later phases
+add_library(me STATIC src/order_book.cpp)          # sources added as I go...
 target_include_directories(me PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 include(FetchContent)
@@ -22,7 +22,8 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 enable_testing()
-add_executable(unit_tests tests/test_matching_engine.cpp)
+add_executable(unit_tests tests/test_matching_engine.cpp
+tests/test_order_book.cpp)
 target_link_libraries(unit_tests PRIVATE me GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)

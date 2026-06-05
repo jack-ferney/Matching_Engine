@@ -10,7 +10,7 @@ namespace me {
 
 struct PriceLevel {
     std::list<Order> orders;
-    Quantity total_qty{0};
+    Quantity total_qty{0};  // updated on rest/reduce/cancel; used for quick qty lookups
 };
 
 using BidMap = std::map<Price, PriceLevel, std::greater<Price>>;
@@ -28,7 +28,7 @@ public:
     }
     bool empty() const { return bids_.empty() && asks_.empty(); }
     std::size_t order_count() const { return id_index_.size(); }
-    Quantity quantity_at(Side side, Price price) const;
+    Quantity quantity_at(Side side, Price price) const; // used for finding quantity at a price level
 
     const BidMap& bids() const { return bids_; }
     const AskMap& asks() const { return asks_; }
