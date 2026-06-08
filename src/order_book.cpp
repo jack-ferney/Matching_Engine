@@ -21,11 +21,31 @@ void OrderBook::rest(const Order& o) {
 }
 
 bool OrderBook::cancel(OrderId id) {
-    // Implementation goes here
+    auto idx = id_index_.find(id);
+    if (idx == id_index_.end()) return false;
+    auto loc = idx->second;
+    auto quant = loc.it->quantity;
+    auto& lvl = (loc.side == Side::Buy) ? bids_[loc.price] : asks_[loc.price];
+    lvl.total_qty = lvl.total_qty - quant;
+    id_index_.erase(id);
+    lvl.orders.erase(loc.it);
+    if (lvl.orders.empty()) {
+        (loc.side == Side::Buy) ? bids_.erase(loc.price) : asks_.erase(loc.price);
+    }
+    return true;
 }
 
-bool OrderBook::reduce(OrderId id, Quantity q) {
-    // Implementation goes here
+bool OrderBook::reduce(OrderId id, Quantity new_qty) {
+    if (new_qty == 0) return cancel(id);
+    auto idx = id_index_.find(id);
+    if (idx == id_index_.end()) return false;
+    auto loc = idx->second;
+    if (new_qty >= loc.it->quantity) return false;
+    auto delta = loc.it->quantity - new_qty;
+    auto& lvl = (loc.side == Side::Buy) ? bids_[loc.price] : asks_[loc.price];
+    lvl.total_qty = lvl.total_qty - delta;
+    loc.it->quantity = new_qty;
+    return true;
 }
 
 } // namespace me
