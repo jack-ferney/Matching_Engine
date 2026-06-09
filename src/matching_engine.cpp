@@ -11,8 +11,9 @@ bool MatchingEngine::crosses(Side side, Price incoming, Price resting) {
 }
 
 std::vector<Trade> MatchingEngine::match(Order& order) {
+    Side side = order.side;
     if (order.type == OrderType::Limit) {
-        
+        // pick up here
     }
 }
 
