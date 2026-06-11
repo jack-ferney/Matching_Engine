@@ -9,9 +9,17 @@ using me::OrderType;
 static me::Order limit(me::OrderId id, Side s, me::Price px, me::Quantity q) {
     return {id, s, OrderType::Limit, px, q, 0};
 }
-// Helper: a market order. 
+// Helper: a market order.
 static me::Order market(me::OrderId id, Side s, me::Quantity q) {
     return {id, s, OrderType::Market, 0, q, 0}; // price not used in market orders
+}
+// Helper: an IOC (immediate-or-cancel) order -- has a limit price, never rests.
+static me::Order ioc(me::OrderId id, Side s, me::Price px, me::Quantity q) {
+    return {id, s, OrderType::IOC, px, q, 0};
+}
+// Helper: a FOK (fill-or-kill) order -- all-or-nothing at the limit price.
+static me::Order fok(me::OrderId id, Side s, me::Price px, me::Quantity q) {
+    return {id, s, OrderType::FOK, px, q, 0};
 }
 
 TEST(Sanity, TypesCompile) {
@@ -284,4 +292,123 @@ TEST(Match, MarketLeavesUnconsumedBookIntact) {
     EXPECT_EQ(eng.book().quantity_at(Side::Sell, 100), 2u); // partially eaten
     EXPECT_EQ(eng.book().quantity_at(Side::Sell, 101), 5u); // fully intact
     EXPECT_EQ(eng.book().best_ask(), 100);
+}
+
+// ============================================================================
+//  IOC (Immediate-Or-Cancel): limit price, fills what's available now, never rests.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 18. IOC partially fills, then cancels the remainder (does NOT rest).
+// ----------------------------------------------------------------------------
+TEST(Match, IOCPartialFillsThenCancels) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));
+    auto r = eng.submit(ioc(2, Side::Buy, 100, 8));   // wants 8, only 5 available
+
+    EXPECT_EQ(r.filled, 5u);
+    EXPECT_EQ(r.cancelled, 3u);                        // 8 - 5 cancelled
+    EXPECT_EQ(r.resting, 0u);                          // IOC never rests
+    EXPECT_FALSE(eng.book().best_bid().has_value());   // it did NOT rest as a bid
+    EXPECT_EQ(eng.book().order_count(), 0u);
+}
+
+// ----------------------------------------------------------------------------
+// 19. IOC that can't cross at all fills nothing and cancels in full.
+// ----------------------------------------------------------------------------
+TEST(Match, IOCNoCrossCancelsAll) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 105, 5));         // ask @ 105
+    auto r = eng.submit(ioc(2, Side::Buy, 100, 5));   // buy @ 100 < 105 -> no cross
+
+    EXPECT_TRUE(r.trades.empty());
+    EXPECT_EQ(r.filled, 0u);
+    EXPECT_EQ(r.cancelled, 5u);
+    EXPECT_EQ(eng.book().best_ask(), 105);            // ask untouched
+    EXPECT_FALSE(eng.book().best_bid().has_value());   // nothing rested
+}
+
+// ----------------------------------------------------------------------------
+// 20. IOC respects its limit price across levels: takes the crossable part only.
+// ----------------------------------------------------------------------------
+TEST(Match, IOCRespectsLimitPrice) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));
+    eng.submit(limit(2, Side::Sell, 110, 5));         // above the IOC's limit
+    auto r = eng.submit(ioc(3, Side::Buy, 100, 12));
+
+    ASSERT_EQ(r.trades.size(), 1u);                   // only the 100 level
+    EXPECT_EQ(r.filled, 5u);
+    EXPECT_EQ(r.cancelled, 7u);                        // 12 - 5 cancelled
+    EXPECT_EQ(eng.book().best_ask(), 110);            // 110 ask intact
+}
+
+// ============================================================================
+//  FOK (Fill-Or-Kill): all-or-nothing, atomic. Requires the fillable_quantity
+//  pre-check to be wired into submit() -- tests 21 & 23 fail without it.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 21. FOK with insufficient liquidity is REJECTED: zero trades, book untouched.
+//     NOTE: requires the FOK pre-check in submit().
+// ----------------------------------------------------------------------------
+TEST(Match, FOKInsufficientIsRejected) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));         // only 5 available
+    auto r = eng.submit(fok(2, Side::Buy, 100, 10));  // needs 10
+
+    EXPECT_TRUE(r.rejected);
+    EXPECT_TRUE(r.trades.empty());                    // NOTHING printed
+    EXPECT_EQ(r.filled, 0u);
+    EXPECT_EQ(r.cancelled, 10u);
+    EXPECT_EQ(eng.book().quantity_at(Side::Sell, 100), 5u); // book UNCHANGED
+}
+
+// ----------------------------------------------------------------------------
+// 22. FOK with exactly enough liquidity (across levels) fills completely.
+// ----------------------------------------------------------------------------
+TEST(Match, FOKSufficientFillsCompletely) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));
+    eng.submit(limit(2, Side::Sell, 101, 5));
+    auto r = eng.submit(fok(3, Side::Buy, 101, 10));  // exactly 10 available
+
+    EXPECT_FALSE(r.rejected);
+    ASSERT_EQ(r.trades.size(), 2u);
+    EXPECT_EQ(r.filled, 10u);
+    EXPECT_EQ(r.resting, 0u);                          // FOK never rests
+    EXPECT_EQ(r.cancelled, 0u);
+    EXPECT_TRUE(eng.book().empty());
+}
+
+// ----------------------------------------------------------------------------
+// 23. FOK fillability respects the limit price: liquidity above the limit
+//     doesn't count, so it's rejected and the book is untouched.
+//     NOTE: requires the FOK pre-check in submit().
+// ----------------------------------------------------------------------------
+TEST(Match, FOKRespectsPriceInFillCheck) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));
+    eng.submit(limit(2, Side::Sell, 110, 5));         // exists, but above the limit
+    auto r = eng.submit(fok(3, Side::Buy, 100, 8));   // needs 8, only 5 crossable
+
+    EXPECT_TRUE(r.rejected);
+    EXPECT_TRUE(r.trades.empty());
+    EXPECT_EQ(eng.book().quantity_at(Side::Sell, 100), 5u); // untouched
+    EXPECT_EQ(eng.book().quantity_at(Side::Sell, 110), 5u); // untouched
+}
+
+// ----------------------------------------------------------------------------
+// 24. FOK against an empty book is rejected.
+//     NOTE: requires the FOK pre-check in submit().
+// ----------------------------------------------------------------------------
+TEST(Match, FOKEmptyBookRejected) {
+    me::MatchingEngine eng;
+    auto r = eng.submit(fok(1, Side::Buy, 100, 5));
+
+    EXPECT_TRUE(r.rejected);
+    EXPECT_TRUE(r.trades.empty());
+    EXPECT_EQ(r.filled, 0u);
+    EXPECT_EQ(r.cancelled, 5u);
+    EXPECT_TRUE(eng.book().empty());
 }
