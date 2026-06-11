@@ -9,6 +9,10 @@ using me::OrderType;
 static me::Order limit(me::OrderId id, Side s, me::Price px, me::Quantity q) {
     return {id, s, OrderType::Limit, px, q, 0};
 }
+// Helper: a market order. 
+static me::Order market(me::OrderId id, Side s, me::Quantity q) {
+    return {id, s, OrderType::Market, 0, q, 0}; // price not used in market orders
+}
 
 TEST(Sanity, TypesCompile) {
     me::Order o{1, me::Side::Buy, me::OrderType::Limit, 100, 10, 0};
@@ -187,4 +191,97 @@ TEST(Match, SweepsSameLevelInFifoOrder) {
     EXPECT_EQ(r.trades[2].quantity, 1u);              // last one partially filled
     EXPECT_EQ(r.filled, 7u);
     EXPECT_EQ(eng.book().quantity_at(Side::Sell, 100), 2u); // 9 - 7 left on id 3
+}
+
+// ----------------------------------------------------------------------------
+// 12. First test for Market orders
+// ----------------------------------------------------------------------------
+TEST(Match, FirstMarketTest) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 105, 5));
+    eng.submit(limit(2, Side::Sell, 108, 8));
+    auto r = eng.submit(market(3, Side::Buy, 10));
+
+    ASSERT_EQ(r.trades.size(), 2u);
+    EXPECT_EQ(r.trades[0].price, 105);
+    EXPECT_EQ(r.trades[1].price, 108);
+    EXPECT_EQ(r.trades[0].quantity, 5u);
+    EXPECT_EQ(r.trades[1].quantity, 5u);
+    EXPECT_EQ(r.resting, 0u);
+    EXPECT_EQ(r.filled, 10u);
+}
+
+// ----------------------------------------------------------------------------
+// 13. Market ignores price entirely: it lifts even a far-away ask.
+// ----------------------------------------------------------------------------
+TEST(Match, MarketIgnoresPrice) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 1000, 5));        // expensive ask
+    auto r = eng.submit(market(2, Side::Buy, 5));     // no price limit
+
+    ASSERT_EQ(r.trades.size(), 1u);
+    EXPECT_EQ(r.trades[0].price, 1000);               // took it at 1000 regardless
+    EXPECT_EQ(r.filled, 5u);
+    EXPECT_TRUE(eng.book().empty());
+}
+
+// ----------------------------------------------------------------------------
+// 14. Market NEVER rests: leftover (book ran dry) is CANCELLED, not rested.
+//     NOTE: requires submit() to set sr.cancelled for a market remainder.
+// ----------------------------------------------------------------------------
+TEST(Match, MarketRemainderIsCancelledNotRested) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));
+    auto r = eng.submit(market(2, Side::Buy, 8));      // wants 8, only 5 available
+
+    EXPECT_EQ(r.filled, 5u);
+    EXPECT_EQ(r.cancelled, 3u);                        // 8 - 5 cancelled
+    EXPECT_EQ(r.resting, 0u);                          // market never rests
+    EXPECT_FALSE(eng.book().best_bid().has_value());   // it did NOT rest as a bid
+    EXPECT_EQ(eng.book().order_count(), 0u);
+}
+
+// ----------------------------------------------------------------------------
+// 15. Market against an empty book: nothing fills, full quantity cancelled.
+//     NOTE: also requires the submit() cancelled-accounting from #14.
+// ----------------------------------------------------------------------------
+TEST(Match, MarketAgainstEmptyBook) {
+    me::MatchingEngine eng;
+    auto r = eng.submit(market(1, Side::Buy, 5));
+
+    EXPECT_TRUE(r.trades.empty());
+    EXPECT_EQ(r.filled, 0u);
+    EXPECT_EQ(r.cancelled, 5u);
+    EXPECT_TRUE(eng.book().empty());
+}
+
+// ----------------------------------------------------------------------------
+// 16. Market sell is symmetric: it takes resting bids at the bid price.
+// ----------------------------------------------------------------------------
+TEST(Match, MarketSellTakesBids) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Buy, 100, 5));          // resting bid
+    eng.submit(limit(2, Side::Buy, 99, 5));           // worse bid
+    auto r = eng.submit(market(3, Side::Sell, 7));    // sweeps best bid then next
+
+    ASSERT_EQ(r.trades.size(), 2u);
+    EXPECT_EQ(r.trades[0].price, 100);                // best (highest) bid first
+    EXPECT_EQ(r.trades[1].price, 99);
+    EXPECT_EQ(r.filled, 7u);
+    EXPECT_EQ(eng.book().quantity_at(Side::Buy, 99), 3u); // 5 - 2 left
+}
+
+// ----------------------------------------------------------------------------
+// 17. Market consumes only what it needs; the rest of the book is untouched.
+// ----------------------------------------------------------------------------
+TEST(Match, MarketLeavesUnconsumedBookIntact) {
+    me::MatchingEngine eng;
+    eng.submit(limit(1, Side::Sell, 100, 5));
+    eng.submit(limit(2, Side::Sell, 101, 5));
+    auto r = eng.submit(market(3, Side::Buy, 3));     // only needs 3
+
+    EXPECT_EQ(r.filled, 3u);
+    EXPECT_EQ(eng.book().quantity_at(Side::Sell, 100), 2u); // partially eaten
+    EXPECT_EQ(eng.book().quantity_at(Side::Sell, 101), 5u); // fully intact
+    EXPECT_EQ(eng.book().best_ask(), 100);
 }
