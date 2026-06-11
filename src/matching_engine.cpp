@@ -2,6 +2,21 @@
 
 namespace me {
 
+Quantity MatchingEngine::fillable_quantity(const Order& order) const {
+    Quantity remaining = order.quantity, fillable = 0;
+    const bool mkt = order.type == OrderType::Market;
+    auto check = [&] (const auto& opposite) {
+        for (auto& [price, level] : opposite) {
+            if (!mkt && !crosses(order.side, order.price, price)) break;
+            Quantity take = std::min(remaining, level.total_qty);
+            fillable += take; remaining -= take;
+            if (remaining == 0) break;
+        }
+    };
+    if (order.side == Side::Buy) check(book_.asks_); else check(book_.bids_);
+    return fillable;
+}
+
 bool MatchingEngine::crosses(Side side, Price incoming, Price resting) {
     if (side == Side::Buy) {
         return incoming >= resting;
@@ -48,6 +63,11 @@ std::vector<Trade> MatchingEngine::match(Order& order) {
 SubmitResult MatchingEngine::submit(Order order) {
     order.seq = next_seq_++;
     SubmitResult sr;
+    sr.rejected = order.type == OrderType::FOK && order.quantity > fillable_quantity(order);
+    if (sr.rejected) {
+        sr.cancelled = order.quantity;
+        return sr;
+    }
     sr.trades = match(order);
     for (auto& t : sr.trades) sr.filled += t.quantity;
     if (order.quantity > 0 && order.type == OrderType::Limit) {
