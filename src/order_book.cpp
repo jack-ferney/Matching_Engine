@@ -20,7 +20,7 @@ void OrderBook::rest(const Order& o) {
     id_index_[o.id] = loc;
 }
 
-bool OrderBook::cancel(OrderId id) {
+bool OrderBook::cancel(OrderId id) { // O(1)
     auto idx = id_index_.find(id);
     if (idx == id_index_.end()) return false;
     auto loc = idx->second;
@@ -35,7 +35,7 @@ bool OrderBook::cancel(OrderId id) {
     return true;
 }
 
-bool OrderBook::reduce(OrderId id, Quantity new_qty) {
+bool OrderBook::reduce(OrderId id, Quantity new_qty) { // O(1)
     if (new_qty == 0) return cancel(id);
     auto idx = id_index_.find(id);
     if (idx == id_index_.end()) return false;

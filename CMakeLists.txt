@@ -11,7 +11,7 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
-add_library(me STATIC src/order_book.cpp)          # sources added as I go...
+add_library(me STATIC src/order_book.cpp src/matching_engine.cpp)          # sources added as I go...
 target_include_directories(me PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 include(FetchContent)
