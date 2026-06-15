@@ -17,6 +17,9 @@ target_include_directories(me PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_executable(demo apps/demo.cpp)
 target_link_libraries(demo PRIVATE me)
 
+add_executable(replay apps/replay.cpp)
+target_link_libraries(replay PRIVATE me)
+
 include(FetchContent)
 FetchContent_Declare(googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
