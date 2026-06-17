@@ -1,4 +1,5 @@
 import argparse, random, csv, sys
+from collections import deque
 
 def generate(n, seed, out):
     random.seed(seed)
@@ -6,10 +7,14 @@ def generate(n, seed, out):
     writer = csv.writer(out)
     writer.writerow(["id","side","type","price","qty"])
     offset = 12
+    resting = deque()
     for oid in range(1, n+1):
+        if (len(resting) > 0 and random.choices(["y","n"], [1,10])[0] == "y"):
+            writer.writerow([resting.popleft(), "", "CANCEL", "", ""])
+            continue
         mid += random.choice([-2,0,2])
         side = random.choice(["B","S"])
-        otype = random.choices(["LIMIT","MARKET","IOC","FOK"], [9,1,1,1])[0]
+        otype = random.choices(["LIMIT","MARKET","IOC","FOK"], [9,2,1,1])[0]
         aggressive = random.random() < 0.25            # ~25% cross the spread; rest are passive
         if otype == "MARKET":
             price = 0
@@ -19,7 +24,8 @@ def generate(n, seed, out):
         else:  # "S"
             price = mid - random.randint(0, offset) if aggressive \
                 else mid + random.randint(1, offset)     # passive ask sits above mid
-
+        if otype == "LIMIT" and not aggressive:
+            resting.append(oid)
         qty = random.randrange(1, 1000, 1)
         writer.writerow([oid, side, otype, price, qty])
 
