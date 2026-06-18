@@ -5,6 +5,8 @@ build/
 
 # Generated data
 *.csv
+*.png
+!apps/sample*.csv
 
 # Claude Code workspace
 .claude/

@@ -33,6 +33,11 @@ int main() {
         std::getline(ss,price,',');
         std::getline(ss,qty,',');
 
+        if (type == "CANCEL") {
+            e.cancel(static_cast<OrderId>(std::stoull(id)));
+            continue;
+        }
+
         Order o{
             static_cast<OrderId>(std::stoull(id)),
             parse_side(side),
