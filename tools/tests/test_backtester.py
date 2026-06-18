@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 # Make `import backtester` work regardless of the current working directory.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backtester import Backtester
 
 
@@ -117,7 +117,8 @@ def test_summary_fields():
     bt.on_trade(1, 999, 100, 10, 1)
     bt.on_trade(2, 998, 101, 10, 2)
     assert bt.summary() == {"position": 0, "max_abs_position": 10, "cash": 10,
-                            "fills": 2, "pnl": 10, "spread_pnl": 10, "inv_drift": 0}, bt.summary()
+                            "fills": 2, "pnl": 10, "spread_pnl": 10, "inv_drift": 0,
+                            "aggressive_fills": 20, "passive_fills": 0}, bt.summary()
 
 
 def test_summary_marks_open_position_at_last_price():
@@ -183,7 +184,8 @@ def test_no_trades_summary_is_flat():
     """With no trades at all, everything is zero."""
     bt = Backtester()
     assert bt.summary() == {"position": 0, "max_abs_position": 0, "cash": 0, "fills": 0,
-                            "pnl": 0, "spread_pnl": 0, "inv_drift": 0}, bt.summary()
+                            "pnl": 0, "spread_pnl": 0, "inv_drift": 0,
+                            "aggressive_fills": 0, "passive_fills": 0}, bt.summary()
 
 
 def test_register_from_reads_sidecar():
@@ -226,6 +228,27 @@ def test_register_from_then_run_books_fills():
     assert bt.fills == 2, bt.fills
 
 
+def test_aggressive_vs_passive_volume():
+    """aggressor_fills / passive_fills accumulate *volume*, split by whether my
+    id was the aggressor or the resting side of each fill."""
+    bt = Backtester()
+    bt.register(1, "B")               # I aggress with this one
+    bt.register(2, "S")               # this one rests and gets lifted
+    bt.on_trade(1, 999, 100, 7, 1)    # I'm the aggressor: +7 aggressive
+    bt.on_trade(888, 2, 101, 4, 2)    # someone lifts my resting ask: +4 passive
+    assert bt.aggressor_fills == 7, bt.aggressor_fills
+    assert bt.passive_fills == 4, bt.passive_fills
+
+
+def test_counters_ignore_foreign_trades():
+    """A trade with none of my ids touches neither counter."""
+    bt = Backtester()
+    bt.register(1, "B")
+    bt.on_trade(50, 51, 100, 9, 1)
+    assert bt.aggressor_fills == 0, bt.aggressor_fills
+    assert bt.passive_fills == 0, bt.passive_fills
+
+
 def main():
     tests = [
         test_buy_then_sell_roundtrip,
@@ -245,6 +268,8 @@ def main():
         test_no_trades_summary_is_flat,
         test_register_from_reads_sidecar,
         test_register_from_then_run_books_fills,
+        test_aggressive_vs_passive_volume,
+        test_counters_ignore_foreign_trades,
     ]
     failures = 0
     for t in tests:

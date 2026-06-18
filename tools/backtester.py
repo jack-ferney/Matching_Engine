@@ -10,6 +10,8 @@ class Backtester:
         self.equity_curve = []
         self.position_curve = []
         self.max_abs_position = 0
+        self.aggressor_fills = 0
+        self.passive_fills = 0
         self.first_price = None         # fair-value anchor: first market price seen
         
     def register(self, order_id, side):
@@ -35,9 +37,11 @@ class Backtester:
         if aggressor_id in self.my_ids:
             my_side = self.my_ids[aggressor_id]
             self.update(price, qty, seq, my_side)
+            self.aggressor_fills += qty
         elif resting_id in self.my_ids:
             my_side = self.my_ids[resting_id]
             self.update(price, qty, seq, my_side)
+            self.passive_fills += qty
         if self.first_price is None:
             self.first_price = price
         self.last_price = price
@@ -65,6 +69,8 @@ class Backtester:
             "pnl": self.pnl(self.last_price),
             "spread_pnl": spread_pnl,
             "inv_drift": self.pnl(self.last_price) - spread_pnl,
+            "aggressive_fills": self.aggressor_fills,
+            "passive_fills": self.passive_fills
         }
         
     def pnl(self, mark):

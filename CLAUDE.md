@@ -5,7 +5,7 @@ Guidance for Claude Code working in this repo. Keep edits to this file terse.
 ## What this is
 A C++20 limit-order-book matching engine + Python backtester, built from scratch
 by following a 14-phase lab guide. It's the user's June–Aug 2026 portfolio project
-for quant/SWE interviews (Jane Street). The goal is **deep understanding**, not just
+for quant/SWE interviews. The goal is **deep understanding**, not just
 a working binary — the user must be able to whiteboard the architecture from memory.
 
 ## How the user works (IMPORTANT — read first)
@@ -33,26 +33,36 @@ a working binary — the user must be able to whiteboard the architecture from m
     prints trades `aggressor_id,resting_id,price,qty,seq` on stdout. CMake target
     `replay` → `build\replay.exe`. Samples `apps/sample{1,2,3}.csv`. Parser matches
     UPPERCASE types + `B`/`S` sides; unknown type falls through to FOK.
-- **Phase 10 IN PROGRESS** — Python tooling in `tools/`:
+- **Phase 10 COMPLETE** — Python tooling in `tools/` (tests in `tools/tests/`):
   - `generator.py` — synthetic flow; mid random-walk + side-aware passive/aggressive
-    placement + weighted types. `--n/--seed/--out`.
+    placement + weighted types; random-interval CANCEL of the oldest resting passive
+    limit (FIFO `deque`). `--n/--seed/--out`.
   - `backtester.py` — `Backtester`: `register`/`register_from(mm_csv)`, `run(trades_csv)`,
-    `on_trade` (signed-qty → cash/position), `pnl(mark)`, `summary()`, `equity_curve`,
-    `fills`, `last_price`. CLI: `backtester.py trades.csv --mm mm.csv`.
-  - `strategy.py` — open-loop market-maker; every `quote_every` steps emits passive
-    bid/ask at mid±spread (qty `quote_qty`, ids ≥ 1_000_000), writes combined orders
-    CSV + `id,side` sidecar. All knobs are CLI flags.
-  - Tests: `tools/test_backtester.py` (17) + `tools/test_strategy.py` (12) +
-    `tools/test_generator.py` (8) = **37 green**.
-    Plain-assert harness (no pytest): `python tools/test_backtester.py`.
+    `on_trade` (signed-qty → cash/position), `pnl(mark)`, `equity_curve`/`position_curve`,
+    `fills`, `last_price`. `summary()` adds `max_abs_position`, the spread/drift split
+    (`spread_pnl` = inventory marked at `first_price`, `inv_drift` = the rest), and
+    `aggressive_fills`/`passive_fills` (volume split by whether my id aggressed or rested
+    — a quoting-through-the-book diagnostic). CLI: `backtester.py trades.csv --mm mm.csv`.
+  - `strategy.py` — open-loop market-maker, refactored into helpers (`effective_spread`,
+    `post_quotes`, `step_mid`, `noise_order`). Mid follows a 2-state Markov vol regime
+    (calm/stormy, `--p_storm/--p_calm/--storm_mult`) → volatility *clustering*. Quotes are
+    vol-scaled: `eff_spread = spread + round(k·sigma)` over a rolling window of recent
+    mid-moves (`--W/--k`). A `live_ids` quote machine CANCELs the prior resting quotes then
+    re-posts at mid±eff_spread (qty `quote_qty`, ids ≥ 1_000_000), writing an orders CSV +
+    `id,side` sidecar. All knobs are CLI flags.
+  - `visualizer.py` — two-panel PNG (matplotlib, `Agg`): equity curve in **dollars**
+    (gain/loss shaded) over the `position_curve` inventory path (long/short shaded,
+    ±max|pos| envelope), title strip = spread/drift split.
+    CLI: `visualizer.py trades.csv --mm mm.csv --out pnl.png`.
+  - Tests (plain-assert, no pytest) in `tools/tests/`: `test_backtester.py` (19) +
+    `test_strategy.py` (17) + `test_generator.py` (8) = **44 green**.
+    Run e.g. `python tools/tests/test_strategy.py`.
   - Pipeline: `strategy.py` → orders + mm csv; `Get-Content orders.csv | build\replay.exe
     | Set-Content trades.csv`; `backtester.py trades.csv --mm mm.csv`.
-  - KNOWN LIMITATION: replay CSV is submit-only (no cancel) + pipeline is open-loop, so
-    the MM can't manage inventory. Engine DOES have O(1) `cancel`/`reduce`
-    (`matching_engine.hpp`) — limit is the CLI/harness, not the engine. Next: (1) cancel
-    action in replay protocol for quote re-centering; (2) closed-loop interactive
-    protocol for inventory-aware skewing.
-  - REMAINING: `visualizer.py` (plot `equity_curve` + inventory path).
+  - replay protocol has a `CANCEL` action (row `id,,CANCEL,,`). KNOWN LIMITATION: pipeline
+    is still open-loop, so the MM can't skew on inventory — vol-scaling fights adverse
+    selection but PnL ≈ spread capture + zero-mean inventory drift. Next: closed-loop
+    interactive protocol for inventory-aware skewing.
 - **Phases 11–14 REMAINING**: 11 benchmark (p50/p99/p99.9), 12 optimization pass
   (object pool, flat-array levels — before/after numbers), 13 README, 14 CI.
 
@@ -60,7 +70,8 @@ a working binary — the user must be able to whiteboard the architecture from m
 - `include/me/*.hpp` — public headers (declarations). Namespace `me`.
 - `src/*.cpp` — implementations, compiled into static lib `me`.
 - `tests/test_matching_engine.cpp` — GoogleTest suite (suites: `Sanity`, `Match`).
-- `apps/` demo+replay (Phase 8–9) · `bench/` (Phase 11) · `tools/` Python (Phase 10).
+- `tests/test_order_book.cpp` — GoogleTest suite.
+- `apps/` demo+replay (Phase 8–9) · `bench/` (Phase 11) · `tools/` Python (Phase 10), tests in `tools/tests/`.
 - Headers go in `include/me/`, NOT a top-level folder. Include own headers with `""`,
   system/third-party with `<>`.
 

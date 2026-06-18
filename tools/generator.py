@@ -15,7 +15,7 @@ def generate(n, seed, out):
         mid += random.choice([-2,0,2])
         side = random.choice(["B","S"])
         otype = random.choices(["LIMIT","MARKET","IOC","FOK"], [9,2,1,1])[0]
-        aggressive = random.random() < 0.25            # ~25% cross the spread; rest are passive
+        aggressive = random.random() < 0.15            # ~15% cross the spread; rest are passive
         if otype == "MARKET":
             price = 0
         elif side == "B":
