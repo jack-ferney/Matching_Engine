@@ -20,6 +20,9 @@ target_link_libraries(demo PRIVATE me)
 add_executable(replay apps/replay.cpp)
 target_link_libraries(replay PRIVATE me)
 
+add_executable(bench bench/bench_engine.cpp)
+target_link_libraries(bench PRIVATE me)
+
 include(FetchContent)
 FetchContent_Declare(googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
